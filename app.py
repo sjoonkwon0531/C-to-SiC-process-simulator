@@ -142,7 +142,8 @@ with st.sidebar:
     # Region Selection
     region = st.selectbox(
         "🌍 Region",
-        options=['Saudi', 'USA', 'EU', 'China'],
+        options=['saudi_arabia', 'usa', 'eu', 'china'],
+        format_func=lambda x: {'saudi_arabia': '🇸🇦 Saudi Arabia', 'usa': '🇺🇸 USA', 'eu': '🇪🇺 EU', 'china': '🇨🇳 China'}[x],
         index=0,
         help="Geographic region for cost and energy analysis"
     )
@@ -1446,51 +1447,48 @@ with tab10:
     if st.button("Calculate CO₂ Emissions"):
         try:
             # Calculate CO₂ emissions
-            co2_results = m10_lca_econ.co2_emissions(region, electrification, production_scale)
+            # Energy per wafer depends on production scale
+            energy_map = {'pilot': 600.0, 'commercial': 350.0, 'industrial': 300.0}
+            energy_kWh = energy_map.get(production_scale, 350.0)
+            elec_scenario = 'solar_electric' if electrification else 'current'
+            
+            # co2_emissions returns a float (kg CO₂)
+            total_co2 = m10_lca_econ.co2_emissions(energy_kWh, region, elec_scenario)
+            
+            # Also get electrification scenarios for comparison
+            elec_scenarios = m10_lca_econ.electrification_scenarios(energy_kWh, region)
             
             col_a, col_b = st.columns(2)
             
             with col_a:
-                st.subheader("Emissions by Source")
-                
-                total_co2 = co2_results.get('total_co2_kg_wafer', 0)
-                energy_co2 = co2_results.get('energy_co2_kg_wafer', 0)
-                transport_co2 = co2_results.get('transport_co2_kg_wafer', 0)
+                st.subheader("Emissions Summary")
                 
                 st.metric("Total CO₂", f"{total_co2:.1f} kg/wafer")
-                st.metric("Energy CO₂", f"{energy_co2:.1f} kg/wafer")
-                st.metric("Transport CO₂", f"{transport_co2:.1f} kg/wafer")
+                st.metric("Energy Consumed", f"{energy_kWh:.0f} kWh/wafer")
+                st.metric("Carbon Price Impact", f"${total_co2/1000 * carbon_price:.2f}/wafer")
             
             with col_b:
-                st.subheader("Emissions Breakdown")
+                st.subheader("Electrification Scenarios")
                 
-                # Create stacked bar chart
-                categories = ['Energy', 'Transport', 'Other']
-                values = [
-                    energy_co2,
-                    transport_co2,
-                    total_co2 - energy_co2 - transport_co2
-                ]
-                
-                fig, ax = plt.subplots(figsize=(8, 6))
-                ax.bar(['Total'], [total_co2], color='lightcoral')
-                
-                # Stacked components
-                bottom = 0
-                colors = ['red', 'orange', 'gray']
-                for i, (cat, val) in enumerate(zip(categories, values)):
-                    if val > 0:
-                        ax.bar(['Components'], [val], bottom=bottom, 
-                              color=colors[i], alpha=0.7, label=cat)
-                        bottom += val
-                
-                ax.set_ylabel('CO₂ Emissions (kg/wafer)')
-                ax.set_title('Carbon Footprint Breakdown')
-                ax.legend()
-                
-                plt.tight_layout()
-                st.pyplot(fig)
-                plt.close()
+                # Compare CO₂ across electrification scenarios
+                if elec_scenarios:
+                    scenarios = list(elec_scenarios.keys())
+                    co2_vals = [elec_scenarios[s].get('co2_kg', elec_scenarios[s]) 
+                               if isinstance(elec_scenarios[s], dict) 
+                               else elec_scenarios[s] 
+                               for s in scenarios]
+                    
+                    fig, ax = plt.subplots(figsize=(8, 6))
+                    colors_bar = ['#FF6B6B' if s == 'current' else '#4ECDC4' if 'solar' in s else '#45B7D1' 
+                                  for s in scenarios]
+                    ax.bar([s.replace('_', ' ').title() for s in scenarios], co2_vals, color=colors_bar)
+                    ax.set_ylabel('CO₂ Emissions (kg/wafer)')
+                    ax.set_title(f'CO₂ by Electrification Scenario — {region.replace("_"," ").title()}')
+                    ax.grid(True, alpha=0.3, axis='y')
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close()
             
         except Exception as e:
             st.error(f"Error calculating CO₂ emissions: {e}")
@@ -1501,8 +1499,17 @@ with tab10:
     if st.button("Run NPV Analysis"):
         try:
             # Run NPV analysis
+            # Estimate CAPEX/revenue/OPEX based on production scale
+            capex_map = {'pilot': 5e6, 'commercial': 5e7, 'industrial': 2e8}
+            rev_map = {'pilot': 2e6, 'commercial': 2e7, 'industrial': 8e7}
+            opex_map = {'pilot': 1e6, 'commercial': 8e6, 'industrial': 3e7}
+            
+            capex = capex_map.get(production_scale, 5e7)
+            annual_rev = rev_map.get(production_scale, 2e7)
+            annual_opex = opex_map.get(production_scale, 8e6)
+            
             npv_results = m10_lca_econ.npv_irr(
-                region, electrification, analysis_years, production_scale
+                capex, annual_rev, annual_opex, years=analysis_years
             )
             
             col_a, col_b = st.columns(2)
@@ -1510,36 +1517,40 @@ with tab10:
             with col_a:
                 st.subheader("Financial Metrics")
                 
-                npv = npv_results.get('npv_usd', 0)
-                irr = npv_results.get('irr_percent', 0)
+                npv = npv_results.get('NPV', 0)
+                irr = npv_results.get('IRR', 0) * 100  # Convert to %
                 payback = npv_results.get('payback_years', 0)
                 
                 st.metric("Net Present Value", f"${npv/1e6:.1f}M")
                 st.metric("Internal Rate of Return", f"{irr:.1f}%")
                 st.metric("Payback Period", f"{payback:.1f} years")
+                st.caption(f"CAPEX: ${capex/1e6:.0f}M | Revenue: ${annual_rev/1e6:.0f}M/yr | OPEX: ${annual_opex/1e6:.0f}M/yr")
             
             with col_b:
                 st.subheader("Cash Flow Profile")
                 
-                if 'cash_flows' in npv_results:
-                    years = npv_results['cash_flows']['years']
-                    flows = npv_results['cash_flows']['flows_usd']
-                    
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    
-                    # Color code positive/negative flows
-                    colors = ['green' if f >= 0 else 'red' for f in flows]
-                    ax.bar(years, [f/1e6 for f in flows], color=colors, alpha=0.7)
-                    
-                    ax.axhline(y=0, color='black', linestyle='-', alpha=0.5)
-                    ax.set_xlabel('Year')
-                    ax.set_ylabel('Cash Flow ($M)')
-                    ax.set_title('Annual Cash Flow Profile')
-                    ax.grid(True, alpha=0.3)
-                    
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                    plt.close()
+                annual_cf = npv_results.get('annual_cashflow', annual_rev - annual_opex)
+                years_list = list(range(analysis_years + 1))
+                flows = [-capex] + [annual_cf] * analysis_years
+                cumulative = np.cumsum(flows)
+                
+                fig, ax = plt.subplots(figsize=(10, 6))
+                
+                # Color code positive/negative flows
+                colors = ['green' if f >= 0 else 'red' for f in flows]
+                ax.bar(years_list, [f/1e6 for f in flows], color=colors, alpha=0.7, label='Annual')
+                ax.plot(years_list, [c/1e6 for c in cumulative], 'b-o', linewidth=2, label='Cumulative')
+                
+                ax.axhline(y=0, color='black', linestyle='-', alpha=0.5)
+                ax.set_xlabel('Year')
+                ax.set_ylabel('Cash Flow ($M)')
+                ax.set_title('Annual & Cumulative Cash Flow')
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                
+                plt.tight_layout()
+                st.pyplot(fig)
+                plt.close()
             
         except Exception as e:
             st.error(f"Error in NPV analysis: {e}")

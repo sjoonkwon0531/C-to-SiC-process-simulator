@@ -15,6 +15,20 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from config import LCA_ECON, ENERGY_COSTS
 
+# Region alias mapping for emission_factors
+_REGION_ALIAS = {
+    'saudi_arabia': 'saudi_arabia',
+    'usa': 'usa_average',
+    'eu': 'eu_average',
+    'china': 'china_industrial',
+}
+
+def _resolve_ef_region(region: str) -> str:
+    """Resolve region name to emission_factors key."""
+    if region in LCA_ECON["emission_factors"]:
+        return region
+    return _REGION_ALIAS.get(region, region)
+
 
 def energy_waterfall(stages_energy: Dict[str, float]) -> Dict:
     """Cumulative energy waterfall by process stage.
@@ -65,7 +79,7 @@ def co2_emissions(energy_kWh: float, region: str = "saudi_arabia",
     float
         CO₂ emissions [kg].
     """
-    ef = LCA_ECON["emission_factors"].get(region, 0.5)
+    ef = LCA_ECON["emission_factors"].get(_resolve_ef_region(region), 0.5)
     scenario_mult = LCA_ECON["electrification_scenarios"].get(
         electrification_scenario, 1.0)
     return energy_kWh * ef * scenario_mult
@@ -158,7 +172,7 @@ def regional_comparison(wafer_params: Dict = None) -> Dict:
         other = cogs["raw_materials"] + cogs["consumables"] + cogs["overhead"]
         total = energy_cost + labor_cost + capex_cost + other
 
-        region_emission_key = region if region in LCA_ECON["emission_factors"] else "saudi_arabia"
+        region_emission_key = _resolve_ef_region(region)
         co2 = co2_emissions(energy_kWh, region_emission_key)
 
         results[region] = {
