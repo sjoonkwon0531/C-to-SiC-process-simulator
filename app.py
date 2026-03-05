@@ -1335,18 +1335,34 @@ with tab10:
         
         try:
             # Get regional comparison
-            regional_results = m10_lca_econ.regional_comparison(region, electrification)
+            regional_results = m10_lca_econ.regional_comparison()
             
-            # Plot COGS breakdown
-            if 'cogs_breakdown' in regional_results:
-                cogs_data = regional_results['cogs_breakdown']
-                
-                categories = list(cogs_data.keys())
-                costs = list(cogs_data.values())
+            # Plot regional cost comparison bar chart
+            if regional_results:
+                regions = list(regional_results.keys())
+                totals = [v["total_cost_usd"] for v in regional_results.values()]
+                energy_costs = [v["energy_cost_usd"] for v in regional_results.values()]
+                labor_costs = [v["labor_cost_usd"] for v in regional_results.values()]
+                capex_costs = [v["capex_cost_usd"] for v in regional_results.values()]
                 
                 fig, ax = plt.subplots(figsize=(10, 6))
-                ax.pie(costs, labels=categories, autopct='%1.1f%%', startangle=90)
-                ax.set_title(f'COGS Breakdown - {region}')
+                x = np.arange(len(regions))
+                w = 0.25
+                ax.bar(x - w, energy_costs, w, label='Energy', color='#FF6B6B')
+                ax.bar(x, labor_costs, w, label='Labor', color='#4ECDC4')
+                ax.bar(x + w, capex_costs, w, label='CapEx', color='#45B7D1')
+                ax.set_xticks(x)
+                ax.set_xticklabels([r.replace('_', ' ').title() for r in regions])
+                ax.set_ylabel('Cost (USD/wafer)')
+                ax.set_title('Regional COGS Comparison')
+                ax.legend()
+                ax.grid(True, alpha=0.3, axis='y')
+                
+                # Highlight selected region
+                for i, r in enumerate(regions):
+                    if r.lower().startswith(region.lower()[:5]):
+                        ax.get_children()[i*3].set_edgecolor('red')
+                        ax.get_children()[i*3].set_linewidth(2)
                 
                 plt.tight_layout()
                 st.pyplot(fig)
