@@ -73,6 +73,64 @@ if 'impurity_tracking' not in st.session_state:
 if 'simulation_results' not in st.session_state:
     st.session_state.simulation_results = {}
 
+def run_complete_simulation(grade: str, region: str, electrification: bool) -> Dict:
+    """Run end-to-end simulation through all 10 modules."""
+    results = {}
+    
+    try:
+        # M01: Feedstock selection
+        feedstock_props = m01_feedstock.select_feedstock(grade)
+        results['feedstock'] = feedstock_props
+        
+        # M02: Acid leaching
+        leach_results = m02_acid_leach.multi_acid_sequence(
+            feedstock_props['impurities_ppm'],
+            ['HCl', 'HF', 'HNO3'],
+            80.0
+        )
+        results['acid_leach'] = leach_results
+        
+        # M03: Halogen purification
+        halogen_results = m03_halogen_purify.halogen_purify_full(
+            leach_results.get('final_impurities', feedstock_props['impurities_ppm']),
+            1800, 2.0, 30.0
+        )
+        results['halogen'] = halogen_results
+        
+        # M04: Thermal treatment
+        thermal_results = m04_thermal.thermal_treat_full(1200, 2.0)
+        results['thermal'] = thermal_results
+        
+        # M05: Acheson synthesis
+        acheson_results = m05_acheson.acheson_simulate(500.0, 4.0)
+        results['acheson'] = acheson_results
+        
+        # M06: Sublimation
+        sublim_results = m06_sublimation.sublimation_purify(2400, 10.0, 1.0)
+        results['sublimation'] = sublim_results
+        
+        # M07: PVT growth
+        pvt_results = m07_pvt_growth.pvt_growth_simulate(2200, 2000, 800.0, 10.0)
+        results['pvt_growth'] = pvt_results
+        
+        # M08: Wafering
+        wafering_results = m08_wafering.wafering_full(150, 0.1, 'fumed_silica')
+        results['wafering'] = wafering_results
+        
+        # M09: Device performance
+        device_results = m09_device.baliga_fom()
+        results['device'] = device_results
+        
+        # M10: LCA & Economics
+        lca_results = m10_lca_econ.regional_comparison(region, electrification)
+        results['lca_economics'] = lca_results
+        
+        return results
+        
+    except Exception as e:
+        st.error(f"Error in simulation: {e}")
+        return {}
+
 # Sidebar Configuration
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -126,64 +184,6 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "9️⃣ Device Bench.",
     "🔟 LCA & Economics"
 ])
-
-def run_complete_simulation(grade: str, region: str, electrification: bool) -> Dict:
-    """Run end-to-end simulation through all 10 modules."""
-    results = {}
-    
-    try:
-        # M01: Feedstock selection
-        feedstock_props = m01_feedstock.select_feedstock(grade)
-        results['feedstock'] = feedstock_props
-        
-        # M02: Acid leaching
-        leach_results = m02_acid_leach.multi_acid_sequence(
-            feedstock_props['impurities_ppm'],
-            ['HCl', 'HF', 'HNO3'],
-            80.0  # Temperature
-        )
-        results['acid_leach'] = leach_results
-        
-        # M03: Halogen purification
-        halogen_results = m03_halogen_purify.halogen_purify_full(
-            leach_results.get('final_impurities', feedstock_props['impurities_ppm']),
-            1800, 2.0, 30.0
-        )
-        results['halogen'] = halogen_results
-        
-        # M04: Thermal treatment
-        thermal_results = m04_thermal.thermal_treat_full(1200, 2.0)
-        results['thermal'] = thermal_results
-        
-        # M05: Acheson synthesis
-        acheson_results = m05_acheson.acheson_simulate(500.0, 4.0)
-        results['acheson'] = acheson_results
-        
-        # M06: Sublimation
-        sublim_results = m06_sublimation.sublimation_purify(2400, 10.0, 1.0)
-        results['sublimation'] = sublim_results
-        
-        # M07: PVT growth
-        pvt_results = m07_pvt_growth.pvt_growth_simulate(2200, 2000, 800.0, 10.0)
-        results['pvt_growth'] = pvt_results
-        
-        # M08: Wafering
-        wafering_results = m08_wafering.wafering_full(150, 0.1, 'fumed_silica')
-        results['wafering'] = wafering_results
-        
-        # M09: Device performance
-        device_results = m09_device.baliga_fom()
-        results['device'] = device_results
-        
-        # M10: LCA & Economics
-        lca_results = m10_lca_econ.regional_comparison(region, electrification)
-        results['lca_economics'] = lca_results
-        
-        return results
-        
-    except Exception as e:
-        st.error(f"Error in simulation: {e}")
-        return {}
 
 # Tab 1: Feedstock
 with tab1:
