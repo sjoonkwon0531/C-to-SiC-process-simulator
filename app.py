@@ -327,12 +327,16 @@ with tab2:
         st.subheader("Leaching Kinetics")
         
         try:
-            # Calculate leaching kinetics
-            particle_r_m = particle_size * 1e-6  # Convert μm to m
+            # Calculate leaching kinetics via shrinking core model
+            particle_d_m = particle_size * 1e-6 * 2  # Convert radius μm to diameter m
+            D_eff = 1e-10  # Effective diffusivity [m²/s] (typical for acid leaching)
+            C_acid = {'HCl': 2.0, 'HF': 1.0, 'HNO3': 3.0, 'H2SO4': 2.0}.get(acid_type, 2.0)
             
-            # Get leaching rate
-            rate_result = m02_acid_leach.shrinking_core_model(temp_c, acid_type, particle_r_m)
-            tau = rate_result['tau_complete_s']
+            # Compute tau (complete conversion time)
+            R = particle_d_m / 2.0
+            rho_s = 1600.0  # carbon density kg/m³
+            C_acid_m3 = C_acid * 1000.0
+            tau = rho_s * R**2 / (6.0 * D_eff * C_acid_m3)
             
             # Generate time series for conversion
             time_hours = np.linspace(0, max_time, 100)
@@ -342,11 +346,13 @@ with tab2:
             # Plot conversion vs time
             fig, ax = plt.subplots(figsize=(10, 6))
             ax.plot(time_hours, [c*100 for c in conversions], 'b-', linewidth=2)
+            ax.axhline(y=95, color='r', linestyle='--', alpha=0.5, label='95% target')
             ax.set_xlabel('Time (hours)')
             ax.set_ylabel('Conversion (%)')
-            ax.set_title(f'Leaching Kinetics - {acid_type} at {temp_c}°C')
+            ax.set_title(f'Shrinking Core Model — {acid_type} at {temp_c}°C, r={particle_size}μm')
+            ax.legend()
             ax.grid(True, alpha=0.3)
-            ax.set_ylim(0, 100)
+            ax.set_ylim(0, 105)
             
             plt.tight_layout()
             st.pyplot(fig)
@@ -355,9 +361,9 @@ with tab2:
             # Display metrics
             col_a, col_b, col_c = st.columns(3)
             with col_a:
-                st.metric("Complete Conv. Time", f"{tau/3600:.1f} hours")
+                st.metric("τ (complete conv.)", f"{tau/3600:.1f} hours")
             with col_b:
-                st.metric("Rate Constant", f"{rate_result.get('k_eff', 0):.2e}")
+                st.metric("Particle Diameter", f"{particle_d_m*1e6:.0f} μm")
             with col_c:
                 final_conversion = conversions[-1] if conversions else 0
                 st.metric(f"Conversion @ {max_time}h", f"{final_conversion*100:.1f}%")
