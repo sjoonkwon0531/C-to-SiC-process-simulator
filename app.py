@@ -594,11 +594,11 @@ with tab4:
     if st.button("Calculate Thermal Profile"):
         try:
             profile_results = m04_thermal.heat_conduction_1d(
-                temp_thermal, time_thermal, thickness/1000  # Convert mm to m
+                25.0, temp_thermal, thickness/1000, time_thermal * 3600  # T_init, T_surface, radius_m, duration_s
             )
             
-            positions = profile_results['positions_m']
-            temperatures = profile_results['final_temps_C']
+            positions = profile_results['r_m']
+            temperatures = profile_results['T_final_C']
             
             fig, ax = plt.subplots(figsize=(10, 6))
             ax.plot([p*1000 for p in positions], temperatures, 'b-', linewidth=2)
@@ -658,44 +658,57 @@ with tab5:
         st.subheader("Temperature & Conversion Profile")
         
         try:
-            # Run Acheson simulation
-            acheson_results = m05_acheson.acheson_full_cycle(power_kW, time_acheson, length)
+            # Radial temperature field
+            power_W = power_kW * 1000
+            duration_s = time_acheson * 3600
+            temp_field = m05_acheson.acheson_temperature_field(
+                power_W, length_m=length, duration_s=duration_s
+            )
             
-            positions = acheson_results['positions_m']
-            final_temps = acheson_results['final_temps_C']
-            conversions = acheson_results['conversions']
+            r_m = temp_field['r_m']
+            T_C = temp_field['T_C']
+            sic_zone = temp_field['sic_zone_r_range_m']
             
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
+            # Also run full cycle for yield metrics
+            charge_mass = 1000  # 1 tonne default
+            cycle_results = m05_acheson.acheson_full_cycle(charge_mass, power_kW=power_kW)
             
-            # Temperature profile
-            ax1.plot(positions, final_temps, 'r-', linewidth=2)
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+            
+            # Radial temperature profile
+            ax1.plot([r*100 for r in r_m], T_C, 'r-', linewidth=2)
+            ax1.axhline(y=1800, color='green', linestyle='--', alpha=0.7, label='SiC formation (1800°C)')
+            ax1.axhline(y=2700, color='orange', linestyle='--', alpha=0.7, label='Sublimation (2700°C)')
+            if len(sic_zone) == 2:
+                ax1.axvspan(sic_zone[0]*100, sic_zone[1]*100, alpha=0.15, color='green', label='SiC zone')
+            ax1.set_xlabel('Radial Position (cm)')
             ax1.set_ylabel('Temperature (°C)')
-            ax1.set_title('Acheson Furnace - Temperature Profile')
+            ax1.set_title('Radial Temperature Profile')
+            ax1.legend(fontsize=8)
             ax1.grid(True, alpha=0.3)
             
-            # Conversion profile
-            ax2.plot(positions, [c*100 for c in conversions], 'b-', linewidth=2)
-            ax2.set_xlabel('Position (m)')
-            ax2.set_ylabel('Conversion (%)')
-            ax2.set_title('SiC Conversion Profile')
-            ax2.grid(True, alpha=0.3)
+            # Yield & energy metrics as bar chart
+            metrics = {
+                'SiC Yield\n(kg)': cycle_results['sic_yield_kg'],
+                'Energy\n(kWh/kg)': cycle_results['energy_per_kg_SiC'],
+                'Efficiency\n(%)': cycle_results['efficiency'] * 100,
+            }
+            ax2.bar(metrics.keys(), metrics.values(), color=['#4ECDC4', '#FF6B6B', '#45B7D1'])
+            ax2.set_title('Acheson Process Metrics')
+            ax2.grid(True, alpha=0.3, axis='y')
             
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
             
             # Show metrics
-            max_temp = max(final_temps)
-            avg_conversion = np.mean(conversions) * 100
-            total_energy = acheson_results.get('total_energy_kWh', power_kW * time_acheson)
-            
             col_a, col_b, col_c = st.columns(3)
             with col_a:
-                st.metric("Max Temperature", f"{max_temp:.0f}°C")
+                st.metric("Core Temperature", f"{temp_field['T_core_C']:.0f}°C")
             with col_b:
-                st.metric("Avg Conversion", f"{avg_conversion:.1f}%")
+                st.metric("SiC Yield", f"{cycle_results['sic_yield_kg']:.1f} kg")
             with col_c:
-                st.metric("Energy Used", f"{total_energy:.0f} kWh")
+                st.metric("Energy", f"{cycle_results['energy_kWh']:.0f} kWh")
             
         except Exception as e:
             st.error(f"Error in Acheson simulation: {e}")
