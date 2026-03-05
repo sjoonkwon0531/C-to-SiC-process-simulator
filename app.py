@@ -83,7 +83,7 @@ def run_complete_simulation(grade: str, region: str, electrification: bool) -> D
         results['feedstock'] = feedstock_props
         
         # M02: Acid leaching
-        leach_results = m02_acid_leach.multi_acid_sequence(
+        leach_results = m02_acid_leach.multi_acid_leach(
             feedstock_props['impurities_ppm'],
             ['HCl', 'HF', 'HNO3'],
             80.0
@@ -91,18 +91,18 @@ def run_complete_simulation(grade: str, region: str, electrification: bool) -> D
         results['acid_leach'] = leach_results
         
         # M03: Halogen purification
-        halogen_results = m03_halogen_purify.halogen_purify_full(
+        halogen_results = m03_halogen_purify.purify_halogen(
             leach_results.get('final_impurities', feedstock_props['impurities_ppm']),
             1800, 2.0, 30.0
         )
         results['halogen'] = halogen_results
         
         # M04: Thermal treatment
-        thermal_results = m04_thermal.thermal_treat_full(1200, 2.0)
+        thermal_results = m04_thermal.thermal_treatment(1200, 2.0)
         results['thermal'] = thermal_results
         
         # M05: Acheson synthesis
-        acheson_results = m05_acheson.acheson_simulate(500.0, 4.0)
+        acheson_results = m05_acheson.acheson_full_cycle(500.0, 4.0)
         results['acheson'] = acheson_results
         
         # M06: Sublimation
@@ -110,11 +110,11 @@ def run_complete_simulation(grade: str, region: str, electrification: bool) -> D
         results['sublimation'] = sublim_results
         
         # M07: PVT growth
-        pvt_results = m07_pvt_growth.pvt_growth_simulate(2200, 2000, 800.0, 10.0)
+        pvt_results = m07_pvt_growth.pvt_simulation(2200, 2000, 800.0, 10.0)
         results['pvt_growth'] = pvt_results
         
         # M08: Wafering
-        wafering_results = m08_wafering.wafering_full(150, 0.1, 'fumed_silica')
+        wafering_results = m08_wafering.cmp_process(150, 0.1, 'fumed_silica')
         results['wafering'] = wafering_results
         
         # M09: Device performance
@@ -326,7 +326,7 @@ with tab2:
             particle_r_m = particle_size * 1e-6  # Convert μm to m
             
             # Get leaching rate
-            rate_result = m02_acid_leach.leach_rate(temp_c, acid_type, particle_r_m)
+            rate_result = m02_acid_leach.shrinking_core_model(temp_c, acid_type, particle_r_m)
             tau = rate_result['tau_complete_s']
             
             # Generate time series for conversion
@@ -373,7 +373,7 @@ with tab2:
                 initial_props = m01_feedstock.select_feedstock(feedstock_grade)
                 initial_impurities = initial_props['impurities_ppm']
             
-            sequence_results = m02_acid_leach.multi_acid_sequence(
+            sequence_results = m02_acid_leach.multi_acid_leach(
                 initial_impurities,
                 ['HCl', 'HF', 'HNO3'],
                 temp_c
@@ -480,7 +480,7 @@ with tab3:
                 input_impurities = initial_props['impurities_ppm']
             
             # Run full halogen purification
-            halogen_results = m03_halogen_purify.halogen_purify_full(
+            halogen_results = m03_halogen_purify.purify_halogen(
                 input_impurities, temp_halogen, cl2_flow, process_time
             )
             
@@ -560,7 +560,7 @@ with tab4:
             time_range = np.linspace(0, time_thermal, 100) * 3600  # Convert to seconds
             T_K = temp_thermal + 273.15
             
-            crystallinities = [m04_thermal.avrami_crystallinity(T_K, t) for t in time_range]
+            crystallinities = [m04_thermal.crystallinity_evolution(T_K, t) for t in time_range]
             time_hours_plot = time_range / 3600
             
             fig, ax = plt.subplots(figsize=(10, 6))
@@ -587,7 +587,7 @@ with tab4:
     
     if st.button("Calculate Thermal Profile"):
         try:
-            profile_results = m04_thermal.thermal_profile_1d(
+            profile_results = m04_thermal.heat_conduction_1d(
                 temp_thermal, time_thermal, thickness/1000  # Convert mm to m
             )
             
@@ -653,7 +653,7 @@ with tab5:
         
         try:
             # Run Acheson simulation
-            acheson_results = m05_acheson.acheson_simulate(power_kW, time_acheson, length)
+            acheson_results = m05_acheson.acheson_full_cycle(power_kW, time_acheson, length)
             
             positions = acheson_results['positions_m']
             final_temps = acheson_results['final_temps_C']
@@ -702,7 +702,7 @@ with tab5:
             temps_range = np.linspace(1000, 2500, 100)
             temps_K = temps_range + 273.15
             
-            gibbs_values = [m05_acheson.reaction_gibbs(T) for T in temps_K]
+            gibbs_values = [m05_acheson.sic_formation_rate(T) for T in temps_K]
             
             fig, ax = plt.subplots(figsize=(10, 6))
             ax.plot(temps_range, gibbs_values, 'g-', linewidth=2)
@@ -769,7 +769,7 @@ with tab6:
             
             for spec in species:
                 try:
-                    vapor_pressures = [m06_sublimation.vapor_pressure(spec, T) for T in temps_K]
+                    vapor_pressures = [m06_sublimation.sic_vapor_species(spec, T) for T in temps_K]
                     ax.semilogy(temps_range, vapor_pressures, label=spec, linewidth=2)
                 except:
                     pass
@@ -889,7 +889,7 @@ with tab7:
         
         try:
             # Calculate growth rate
-            growth_rate = m07_pvt_growth.growth_rate_mm_h(T_source, T_seed, P_Ar)
+            growth_rate = m07_pvt_growth.growth_rate(T_source, T_seed, P_Ar)
             
             # Plot growth rate vs temperature gradient
             temp_gradients = np.linspace(50, 400, 50)
@@ -898,7 +898,7 @@ with tab7:
             for dT in temp_gradients:
                 T_src_temp = T_seed + dT
                 try:
-                    rate = m07_pvt_growth.growth_rate_mm_h(T_src_temp, T_seed, P_Ar)
+                    rate = m07_pvt_growth.growth_rate(T_src_temp, T_seed, P_Ar)
                     growth_rates.append(rate)
                 except:
                     growth_rates.append(0)
@@ -929,7 +929,7 @@ with tab7:
     if st.button("Run PVT Growth Simulation"):
         try:
             # Run full PVT simulation
-            pvt_results = m07_pvt_growth.pvt_growth_simulate(
+            pvt_results = m07_pvt_growth.pvt_simulation(
                 T_source, T_seed, P_Ar, growth_time
             )
             
@@ -1031,7 +1031,7 @@ with tab8:
         
         try:
             # Calculate MRR using Preston equation
-            mrr = m08_wafering.material_removal_rate(
+            mrr = m08_wafering.preston_mrr(
                 slurry_type, pressure_psi, velocity_m_s
             )
             
@@ -1042,7 +1042,7 @@ with tab8:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
             
             # MRR vs Pressure
-            mrr_vs_p = [m08_wafering.material_removal_rate(slurry_type, p, velocity_m_s) 
+            mrr_vs_p = [m08_wafering.preston_mrr(slurry_type, p, velocity_m_s) 
                        for p in pressures]
             ax1.plot(pressures, mrr_vs_p, 'b-', linewidth=2)
             ax1.axvline(x=pressure_psi, color='r', linestyle='--', 
@@ -1054,7 +1054,7 @@ with tab8:
             ax1.grid(True, alpha=0.3)
             
             # MRR vs Velocity
-            mrr_vs_v = [m08_wafering.material_removal_rate(slurry_type, pressure_psi, v) 
+            mrr_vs_v = [m08_wafering.preston_mrr(slurry_type, pressure_psi, v) 
                        for v in velocities]
             ax2.plot(velocities, mrr_vs_v, 'g-', linewidth=2)
             ax2.axvline(x=velocity_m_s, color='r', linestyle='--', 
@@ -1081,7 +1081,7 @@ with tab8:
     if st.button("Run CMP Simulation"):
         try:
             # Run full wafering process
-            wafering_results = m08_wafering.wafering_full(
+            wafering_results = m08_wafering.cmp_process(
                 wafer_diameter, polish_time/60, slurry_type  # Convert minutes to hours
             )
             
@@ -1214,7 +1214,7 @@ with tab9:
             for mat in materials:
                 try:
                     bfom_data = m09_device.baliga_fom(mat)
-                    ron_data = m09_device.specific_on_resistance(mat, operating_voltage)
+                    ron_data = m09_device.mosfet_losses(mat, operating_voltage)
                     
                     comparison_data.append({
                         'Material': mat,
@@ -1240,7 +1240,7 @@ with tab9:
     if st.button("Calculate AIDC Savings"):
         try:
             # Calculate energy savings for AIDC application
-            aidc_savings = m09_device.aidc_energy_saving(
+            aidc_savings = m09_device.aidc_power_savings(
                 device_material, 
                 operating_voltage, 
                 operating_current,
@@ -1476,7 +1476,7 @@ with tab10:
     if st.button("Run NPV Analysis"):
         try:
             # Run NPV analysis
-            npv_results = m10_lca_econ.npv_analysis(
+            npv_results = m10_lca_econ.npv_irr(
                 region, electrification, analysis_years, production_scale
             )
             
