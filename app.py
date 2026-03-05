@@ -85,28 +85,32 @@ def run_complete_simulation(grade: str, region: str, electrification: bool) -> D
         # M02: Acid leaching
         leach_results = m02_acid_leach.multi_acid_leach(
             feedstock_props['impurities_ppm'],
-            ['HCl', 'HF', 'HNO3'],
-            80.0
+            'HCl',
+            80.0,
+            3600.0
         )
         results['acid_leach'] = leach_results
         
         # M03: Halogen purification
         halogen_results = m03_halogen_purify.purify_halogen(
             leach_results.get('final_impurities', feedstock_props['impurities_ppm']),
-            1800, 2.0, 30.0
+            1800
         )
         results['halogen'] = halogen_results
         
         # M04: Thermal treatment
-        thermal_results = m04_thermal.thermal_treatment(1200, 2.0)
+        thermal_results = m04_thermal.thermal_treatment(mass_kg=10.0, T_max_C=1200)
         results['thermal'] = thermal_results
         
         # M05: Acheson synthesis
-        acheson_results = m05_acheson.acheson_full_cycle(500.0, 4.0)
+        acheson_results = m05_acheson.acheson_full_cycle(charge_mass_kg=500.0)
         results['acheson'] = acheson_results
         
         # M06: Sublimation
-        sublim_results = m06_sublimation.sublimation_purify(2400, 10.0, 1.0)
+        sublim_results = m06_sublimation.sublimation_purify(
+            leach_results.get('final_impurities', feedstock_props['impurities_ppm']),
+            T_C=2400, duration_h=10.0
+        )
         results['sublimation'] = sublim_results
         
         # M07: PVT growth
@@ -114,7 +118,7 @@ def run_complete_simulation(grade: str, region: str, electrification: bool) -> D
         results['pvt_growth'] = pvt_results
         
         # M08: Wafering
-        wafering_results = m08_wafering.cmp_process(150, 0.1, 'fumed_silica')
+        wafering_results = m08_wafering.cmp_process()
         results['wafering'] = wafering_results
         
         # M09: Device performance
@@ -122,7 +126,7 @@ def run_complete_simulation(grade: str, region: str, electrification: bool) -> D
         results['device'] = device_results
         
         # M10: LCA & Economics
-        lca_results = m10_lca_econ.regional_comparison(region, electrification)
+        lca_results = m10_lca_econ.regional_comparison()
         results['lca_economics'] = lca_results
         
         return results
@@ -375,8 +379,9 @@ with tab2:
             
             sequence_results = m02_acid_leach.multi_acid_leach(
                 initial_impurities,
-                ['HCl', 'HF', 'HNO3'],
-                temp_c
+                'HCl',
+                temp_c,
+                3600.0
             )
             
             # Display results table
