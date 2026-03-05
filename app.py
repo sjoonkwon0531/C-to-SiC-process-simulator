@@ -991,17 +991,17 @@ with tab8:
         # Slurry selection
         slurry_type = st.selectbox(
             "CMP Slurry",
-            options=['fumed_silica', 'ceria', 'alumina', 'diamond'],
+            options=['colloidal_silica', 'alumina', 'diamond', 'cmp_SiC'],
             help="Choose CMP slurry type"
         )
         
-        # Pressure
-        pressure_psi = st.slider(
-            "Pressure (psi)",
-            min_value=1.0,
-            max_value=10.0,
-            value=5.0,
-            step=0.5
+        # Pressure (kPa)
+        pressure_kPa = st.slider(
+            "Pressure (kPa)",
+            min_value=5.0,
+            max_value=60.0,
+            value=30.0,
+            step=5.0
         )
         
         # Velocity
@@ -1035,37 +1035,41 @@ with tab8:
         st.subheader("Material Removal Rate (MRR)")
         
         try:
+            # Look up Preston coefficient for selected slurry
+            from config import WAFERING as WAF_CFG
+            k_p = WAF_CFG["preston_kp"].get(slurry_type, 3e-14)
+            
             # Calculate MRR using Preston equation
             mrr = m08_wafering.preston_mrr(
-                slurry_type, pressure_psi, velocity_m_s
+                k_p, pressure_kPa, velocity_m_s
             )
             
             # Plot MRR vs pressure and velocity
-            pressures = np.linspace(1, 10, 20)
+            pressures = np.linspace(5, 60, 20)
             velocities = np.linspace(0.1, 2.0, 20)
             
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
             
             # MRR vs Pressure
-            mrr_vs_p = [m08_wafering.preston_mrr(slurry_type, p, velocity_m_s) 
+            mrr_vs_p = [m08_wafering.preston_mrr(k_p, p, velocity_m_s) 
                        for p in pressures]
             ax1.plot(pressures, mrr_vs_p, 'b-', linewidth=2)
-            ax1.axvline(x=pressure_psi, color='r', linestyle='--', 
-                       label=f'Current = {pressure_psi} psi')
-            ax1.set_xlabel('Pressure (psi)')
-            ax1.set_ylabel('MRR (nm/min)')
+            ax1.axvline(x=pressure_kPa, color='r', linestyle='--', 
+                       label=f'Current = {pressure_kPa} kPa')
+            ax1.set_xlabel('Pressure (kPa)')
+            ax1.set_ylabel('MRR (μm/min)')
             ax1.set_title('MRR vs Pressure')
             ax1.legend()
             ax1.grid(True, alpha=0.3)
             
             # MRR vs Velocity
-            mrr_vs_v = [m08_wafering.preston_mrr(slurry_type, pressure_psi, v) 
+            mrr_vs_v = [m08_wafering.preston_mrr(k_p, pressure_kPa, v) 
                        for v in velocities]
             ax2.plot(velocities, mrr_vs_v, 'g-', linewidth=2)
             ax2.axvline(x=velocity_m_s, color='r', linestyle='--', 
                        label=f'Current = {velocity_m_s} m/s')
             ax2.set_xlabel('Velocity (m/s)')
-            ax2.set_ylabel('MRR (nm/min)')
+            ax2.set_ylabel('MRR (μm/min)')
             ax2.set_title('MRR vs Velocity')
             ax2.legend()
             ax2.grid(True, alpha=0.3)
@@ -1075,7 +1079,7 @@ with tab8:
             plt.close()
             
             # Display current MRR
-            st.metric("Material Removal Rate", f"{mrr:.1f} nm/min")
+            st.metric("Material Removal Rate", f"{mrr:.3f} μm/min")
             
         except Exception as e:
             st.error(f"Error calculating MRR: {e}")
