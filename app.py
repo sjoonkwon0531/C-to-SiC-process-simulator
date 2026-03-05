@@ -765,24 +765,30 @@ with tab6:
         st.subheader("Vapor Pressure Analysis")
         
         try:
-            # Plot vapor pressure for different species
-            temps_range = np.linspace(2000, 2800, 100)
-            temps_K = temps_range + 273.15
+            # Plot vapor pressure for different species across temperature range
+            temps_range = np.linspace(1800, 2600, 100)
             
-            species = ['SiC', 'Si', 'C']
+            # sic_vapor_species(T_C) returns dict of species partial pressures
+            species_data = {}
+            for T in temps_range:
+                vp = m06_sublimation.sic_vapor_species(T)
+                for sp, val in vp.items():
+                    if sp != 'total':
+                        species_data.setdefault(sp, []).append(val)
+                species_data.setdefault('total', []).append(vp.get('total', 0))
             
             fig, ax = plt.subplots(figsize=(10, 6))
             
-            for spec in species:
-                try:
-                    vapor_pressures = [m06_sublimation.sic_vapor_species(spec, T) for T in temps_K]
-                    ax.semilogy(temps_range, vapor_pressures, label=spec, linewidth=2)
-                except:
-                    pass
+            for sp, vals in species_data.items():
+                ls = '--' if sp == 'total' else '-'
+                ax.semilogy(temps_range, vals, label=sp, linewidth=2, linestyle=ls)
+            
+            # Mark current temperature
+            ax.axvline(x=temp_sublim, color='r', linestyle=':', label=f'Current {temp_sublim}°C')
             
             ax.set_xlabel('Temperature (°C)')
             ax.set_ylabel('Vapor Pressure (Pa)')
-            ax.set_title('Vapor Pressure vs Temperature')
+            ax.set_title('SiC Vapor Species vs Temperature')
             ax.legend()
             ax.grid(True, alpha=0.3)
             
@@ -798,45 +804,53 @@ with tab6:
     
     if st.button("Run Sublimation Purification"):
         try:
-            # Run sublimation purification
+            # Run sublimation purification with typical post-Acheson impurities
+            default_impurities = {'Fe': 15.0, 'Al': 8.0, 'B': 3.0, 'Ti': 2.0, 'V': 1.0}
+            impurities = st.session_state.get('current_impurities', default_impurities)
+            
             sublim_results = m06_sublimation.sublimation_purify(
-                temp_sublim, pressure_mbar, time_sublim
+                impurities, T_C=temp_sublim, duration_h=time_sublim, n_passes=3
             )
             
             # Display results
             col_a, col_b = st.columns(2)
             
             with col_a:
-                st.subheader("Separation Efficiency")
-                efficiency = sublim_results.get('separation_efficiency', {})
-                if efficiency:
+                st.subheader("Purification Results")
+                st.metric("Purity Grade", sublim_results.get('purity_grade', 'N/A'))
+                st.metric("Initial Total ppm", f"{sublim_results.get('total_initial_ppm', 0):.1f}")
+                st.metric("Final Total ppm", f"{sublim_results.get('total_final_ppm', 0):.4f}")
+                st.metric("Mass Loss", f"{sublim_results.get('mass_loss_fraction', 0)*100:.1f}%")
+                
+                # Impurity before/after table
+                final_ppm = sublim_results.get('final_ppm', {})
+                if final_ppm:
                     eff_df = pd.DataFrame([
-                        {'Component': comp, 'Separation %': f"{eff*100:.1f}%"}
-                        for comp, eff in efficiency.items()
+                        {'Element': el, 'Before (ppm)': f"{impurities.get(el,0):.2f}", 
+                         'After (ppm)': f"{v:.4e}" if v < 0.01 else f"{v:.4f}"}
+                        for el, v in final_ppm.items()
                     ])
                     st.dataframe(eff_df, hide_index=True)
             
             with col_b:
-                st.subheader("Process Metrics")
-                purity_gain = sublim_results.get('purity_increase', 0)
-                energy_consumption = sublim_results.get('energy_kWh', 0)
+                st.subheader("Impurity Removal")
                 
-                st.metric("Purity Gain", f"{purity_gain*100:.2f}%")
-                st.metric("Energy Used", f"{energy_consumption:.1f} kWh")
-            
-            # BPS segregation details
-            if 'bps_results' in sublim_results:
-                st.subheader("BPS Segregation Results")
-                bps_data = sublim_results['bps_results']
+                # Bar chart: before vs after
+                elements = list(final_ppm.keys())
+                before_vals = [impurities.get(el, 0) for el in elements]
+                after_vals = [final_ppm[el] for el in elements]
                 
                 fig, ax = plt.subplots(figsize=(10, 6))
-                components = list(bps_data.keys())
-                separations = [bps_data[c].get('separation_factor', 0) for c in components]
-                
-                ax.bar(components, separations, color='skyblue', alpha=0.7)
-                ax.set_ylabel('Separation Factor')
-                ax.set_title('BPS Separation Factors')
-                ax.grid(True, alpha=0.3)
+                x = np.arange(len(elements))
+                ax.bar(x - 0.2, before_vals, 0.35, label='Before', color='#FF6B6B', alpha=0.8)
+                ax.bar(x + 0.2, [max(v, 1e-6) for v in after_vals], 0.35, label='After', color='#4ECDC4', alpha=0.8)
+                ax.set_xticks(x)
+                ax.set_xticklabels(elements)
+                ax.set_ylabel('Impurity (ppm)')
+                ax.set_yscale('log')
+                ax.set_title(f'Sublimation Purification ({sublim_results.get("n_passes",3)} passes, {temp_sublim}°C)')
+                ax.legend()
+                ax.grid(True, alpha=0.3, axis='y')
                 
                 plt.tight_layout()
                 st.pyplot(fig)
